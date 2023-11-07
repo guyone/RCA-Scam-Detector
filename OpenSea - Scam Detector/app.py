@@ -8,8 +8,10 @@ load_dotenv()
 # Initialize Reddit API
 reddit = init_reddit()
 
+TEST_SUBREDDIT = os.getenv('TEST_SUBREDDIT')
+
 # Start Reddit bot in a thread
-threading.Thread(target=run_bot, args=(reddit, os.getenv('REDDIT_SUBREDDIT'))).start()
+threading.Thread(target=run_bot, args=(reddit, TEST_SUBREDDIT)).start()
 
 # # listening for comments in the subreddit
 # threading.Thread(target=listen_for_subreddit_commands, args=(reddit, os.getenv('REDDIT_USERNAME'))).start()

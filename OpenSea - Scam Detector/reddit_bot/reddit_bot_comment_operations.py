@@ -34,28 +34,24 @@ class BotOperations:
         else:
             return None
 
-    # writes the entry into the database
-    def write_to_mongodb(self, collection, id, url, author_name, author_id, bot_reply=None):
-        entry = {
-            'timestamp': datetime.utcnow().strftime('%Y-%m-%d'),
-            'url': url,
-            'user': author_name,
-            'user_id': author_id,
-            'id': id,
-        }
-        if bot_reply:
-            entry['bot_reply'] = bot_reply
-        collection.insert_one(entry)
-
     def db_check_address(self, contract_address):
         query = {"contract_address": contract_address}
         return db_client.rcas.find_one(query) is not None
+
+    def db_check_scam_dup(self, contract_address):
+        query = {"smart_contract": contract_address}
+        document = db_client.rca_scams.find_one(query, {'_id': 0, 'reddit_url': 1})
+        
+        if document is not None:
+            return document.get('reddit_url')
+        else:
+            return None
 
     # makes sure the username isn't [deleted]
     def handle_author(self, obj):
         return (obj.author.name, obj.author.id) if obj.author is not None else ("Deleted User", "N/A")
 
-    def check_post_for_scam_link(self, submission):
+    def check_post_for_scam_link(self, submission, legit_flair_id, scam_flair_id):
         if submission.id in self.checked_posts:
                     return
 
@@ -64,18 +60,31 @@ class BotOperations:
 
         contract_address = self.extract_contract_address(submission.url)
 
-
         results = self.db_check_address(contract_address)
         if results == True:
-             print('this is a legit nft')
-            #  continue script here
-        
-        # Reply to the post
-        reddit_post_link = f"https://reddit.com{submission.permalink}"
-        comment_text = f"This incident has been noted. You can view the post here: {reddit_post_link}"
-        submission.reply(comment_text)
-        print(f"Comment made on post: {reddit_post_link}")
-    
+            comment_text = f"Your post is a legit Reddit Collectable Avatar and it is safe to purchase it."
+            comment = submission.reply(comment_text)
+            submission.mod.flair(flair_template_id=legit_flair_id)
+            comment.mod.distinguish(sticky=True)
+            print(f"LEGIT RCA FOUND: A legit RCA was submitted and a comment was made on the post.")
+
+        if results == False:
+            result = self.db_check_scam_dup(contract_address)
+            if result is not True:
+                comment_text = f"#THIS IS CONSIDERED A SCAM!  \n\nWe advise against the purchasing of this NFT as it does not come from the official Reddit smart contract and therefore can be considered a scam.  \n\nThis NFT was first contributed and databased [here]({result})"
+                comment = submission.reply(comment_text)
+                submission.mod.flair(flair_template_id=scam_flair_id)
+                comment.mod.distinguish(sticky=True)
+                print(f"OLD SCAM FOUND: An old scam has been submitted and found within the db already.")
+                return
+            self.write_to_mongodb(submission, contract_address)
+            comment_text = f"#THIS IS CONSIDERED A SCAM!  \n\nWe advise against the purchasing of this NFT as it does not come from the official Reddit smart contract and therefore can be considered a scam.  \n\nThis NFT is not in our RCA scam database and was added. Thank you for your contribution!"
+            f"The smart contract for this."
+            comment = submission.reply(comment_text)
+            submission.mod.flair(flair_template_id=scam_flair_id)
+            comment.mod.distinguish(sticky=True)
+            print(f"NEW SCAM FOUND: A new scam has been entered into the database.")
+
     def extract_contract_address(self, reddit_post_url):
         # Define the pattern to extract the Ethereum contract address
         # This pattern looks for the '0x' followed by 40 hexadecimal characters
@@ -89,3 +98,31 @@ class BotOperations:
             return match.group(0)  # The matched text
         else:
             return None
+
+        # writes the entry into the database
+    
+    def write_to_mongodb(self, submission, contract_address):
+
+        # Ensure that the submission has an author attribute
+        if submission.author is not None:
+            author_name = submission.author.name  # Reddit username of the author
+            author_id = submission.author.id  # Reddit ID of the author
+        else:
+            # Handle deleted or missing author
+            author_name = '[deleted]'
+            author_id = None
+        
+        reddit_base_url = 'https://www.reddit.com'
+        full_reddit_url = reddit_base_url + submission.permalink
+
+        entry = {
+            'timestamp': datetime.utcnow().strftime('%Y-%m-%d'),
+            'opensea_url': submission.url,
+            'reddit_url': full_reddit_url,
+            'smart_contract': contract_address,
+            'user': author_name,
+            'user_id': author_id,
+            'id': submission.id,
+        }
+
+        db_client.rca_scams.insert_one(entry)
